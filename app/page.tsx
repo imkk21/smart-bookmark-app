@@ -76,13 +76,24 @@ export default function Home() {
   }, []);
 
   // Auth
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-      userIdRef.current = data.user?.id ?? null;
-      setLoading(false);
-    });
-  }, []);
+useEffect(() => {
+  // Initial session check
+  supabase.auth.getSession().then(({ data }) => {
+    setUser(data.session?.user ?? null);
+    setLoading(false);
+  });
+
+  // Listen for auth changes (login, logout)
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((_event, session) => {
+    setUser(session?.user ?? null);
+  });
+
+  return () => {
+    subscription.unsubscribe();
+  };
+}, []);
 
   // ✅ fetchBookmarks reads from ref — no user dependency = always stable
   const fetchBookmarks = useCallback(async () => {
