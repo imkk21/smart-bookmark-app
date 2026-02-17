@@ -8,13 +8,13 @@ Live demo supports **Google OAuth Login**, private bookmarks per user, and real-
 
 ## 🔗 Live Demo
 
-👉 **Vercel URL:** _<PASTE YOUR LIVE VERCEL URL HERE>_
+👉 **Vercel URL:** _<https://smart-bookmark-app-olive-two.vercel.app/>_
 
 ---
 
 ## 📦 GitHub Repository
 
-👉 **Repo:** _<PASTE YOUR GITHUB REPO URL HERE>_
+👉 **Repo:** _<https://github.com/imkk21/smart-bookmark-app>_
 
 ---
 
