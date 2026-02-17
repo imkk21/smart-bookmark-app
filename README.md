@@ -1,36 +1,144 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Smart Bookmark App
 
-## Getting Started
+A simple, secure, real-time bookmark manager.
 
-First, run the development server:
+Live demo supports **Google OAuth Login**, private bookmarks per user, and real-time updates across tabs.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## 🔗 Live Demo
+
+👉 **Vercel URL:** _<PASTE YOUR LIVE VERCEL URL HERE>_
+
+---
+
+## 📦 GitHub Repository
+
+👉 **Repo:** _<PASTE YOUR GITHUB REPO URL HERE>_
+
+---
+
+## ✨ Features
+
+- Google OAuth authentication (no email/password)
+- Add bookmarks with title and URL
+- Bookmarks are **private to each user**
+- Real-time updates using Supabase Realtime
+- Delete your own bookmarks
+- Fully deployed on Vercel
+
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend:** Next.js 16 (App Router), TypeScript
+- **Backend:** Supabase (Auth, PostgreSQL, Realtime)
+- **Styling:** Tailwind CSS
+- **Deployment:** Vercel
+
+---
+
+## 🗂️ Project Structure
+
+```
+smart-bookmark-app/
+├── app/
+│   ├── auth/callback/route.ts   # OAuth callback handler
+│   ├── layout.tsx               # Root layout
+│   └── page.tsx                 # Main app (login + bookmarks)
+├── lib/
+│   └── supabaseClient.ts        # Supabase client
+├── public/
+├── .env.local                   # Environment variables
+├── README.md
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🔐 Authentication Flow
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. User clicks **Sign in with Google**
+2. Google OAuth flow is triggered via Supabase
+3. Supabase redirects to `/auth/callback`
+4. Auth code is exchanged for a session
+5. Session is stored securely using cookies
+6. User is redirected back to the app
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🧠 Database & Security
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Bookmarks Table
+- `id` (uuid)
+- `user_id` (linked to auth.users)
+- `title`
+- `url`
+- `created_at`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Row Level Security (RLS)
+- Users can only **read, insert, and delete their own bookmarks**
+- Enforced using `auth.uid()` policies
 
-## Deploy on Vercel
+This guarantees that **User A can never see User B’s data**.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🔄 Realtime Updates
+
+Supabase Realtime listens for changes on the `bookmarks` table filtered by `user_id`.
+
+If you:
+- Open two tabs
+- Add a bookmark in one tab
+
+➡️ It appears instantly in the other tab without refresh.
+
+---
+
+## 🚧 Problems Faced & Solutions
+
+### 1. Google OAuth callback errors
+**Problem:** Redirect and cookie issues with Next.js App Router  
+**Solution:** Implemented a custom OAuth callback using Supabase SSR helpers and explicit cookie handlers.
+
+---
+
+### 2. Next.js 16 cookie API breaking changes
+**Problem:** `cookies()` became async and removed `getAll()`  
+**Solution:** Switched to supported `get / set / remove` cookie methods as recommended by Supabase.
+
+---
+
+### 3. Realtime triggering for all users
+**Problem:** Realtime events firing globally  
+**Solution:** Added `user_id` filter to Realtime subscription.
+
+---
+
+### 4. RLS blocking inserts
+**Problem:** Inserts silently failing  
+**Solution:** Fixed RLS `WITH CHECK` policy to match `auth.uid()`.
+
+---
+
+## 🚀 Deployment
+
+1. Push code to GitHub
+2. Import repo into Vercel
+3. Add environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. Update Google OAuth redirect URLs for production
+5. Deploy 🎉
+
+---
+
+## ✅ Final Notes
+
+- No test users required (Google OAuth works for any account)
+- App is intentionally simple and production-focused
+- Emphasis was placed on correctness, security, and clarity
+
+---
+
+**Built with ❤️ using Next.js & Supabase**
