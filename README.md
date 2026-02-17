@@ -73,6 +73,8 @@ smart-bookmark-app/
 - `user_id` (linked to auth.users)
 - `title`
 - `url`
+- `description`
+- `tag`
 - `created_at`
 
 ### Row Level Security (RLS)
