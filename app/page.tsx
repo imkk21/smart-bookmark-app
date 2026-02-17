@@ -65,37 +65,43 @@ export default function Home() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // ✅ Click-to-toggle profile dropdown
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const titleRef = useRef<HTMLInputElement>(null);
-  // Stable ref so realtime channel never needs to re-subscribe when user object re-renders
   const userIdRef = useRef<string | null>(null);
+  // ✅ Ref to detect clicks outside the dropdown
+  const profileRef = useRef<HTMLDivElement>(null);
 
   const toast = useCallback((msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3000);
   }, []);
 
+  // ✅ Close dropdown when clicking anywhere outside it
+  useEffect(() => {
+    if (!profileOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [profileOpen]);
+
   // Auth
-useEffect(() => {
-  // Initial session check
-  supabase.auth.getSession().then(({ data }) => {
-    setUser(data.session?.user ?? null);
-    setLoading(false);
-  });
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => { subscription.unsubscribe(); };
+  }, []);
 
-  // Listen for auth changes (login, logout)
-  const {
-    data: { subscription },
-  } = supabase.auth.onAuthStateChange((_event, session) => {
-    setUser(session?.user ?? null);
-  });
-
-  return () => {
-    subscription.unsubscribe();
-  };
-}, []);
-
-  // ✅ fetchBookmarks reads from ref — no user dependency = always stable
   const fetchBookmarks = useCallback(async () => {
     if (!userIdRef.current) return;
     const { data, error } = await supabase
@@ -105,58 +111,39 @@ useEffect(() => {
     if (!error) setBookmarks(data || []);
   }, []);
 
-  // Realtime — runs once after login, handles all event types explicitly
   useEffect(() => {
     if (!user) return;
     userIdRef.current = user.id;
-
     fetchBookmarks();
-
     const channel = supabase
       .channel("realtime-bookmarks")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "bookmarks",
-          filter: `user_id=eq.${user.id}`,
-        },
+      .on("postgres_changes", { event: "*", schema: "public", table: "bookmarks", filter: `user_id=eq.${user.id}` },
         (payload) => {
           if (payload.eventType === "INSERT") {
             setBookmarks((prev) => [payload.new as Bookmark, ...prev]);
           } else if (payload.eventType === "DELETE") {
-            // ✅ Key fix: remove by ID from state when realtime DELETE fires
             setBookmarks((prev) => prev.filter((b) => b.id !== payload.old.id));
           } else if (payload.eventType === "UPDATE") {
-            setBookmarks((prev) =>
-              prev.map((b) => (b.id === payload.new.id ? (payload.new as Bookmark) : b))
-            );
+            setBookmarks((prev) => prev.map((b) => (b.id === payload.new.id ? (payload.new as Bookmark) : b)));
           }
         }
       )
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [user, fetchBookmarks]);
 
-  // Filter + Sort
   useEffect(() => {
     let result = [...bookmarks];
     if (search) {
       const q = search.toLowerCase();
-      result = result.filter(
-        (b) =>
-          b.title.toLowerCase().includes(q) ||
-          b.url.toLowerCase().includes(q) ||
-          b.description?.toLowerCase().includes(q)
+      result = result.filter((b) =>
+        b.title.toLowerCase().includes(q) ||
+        b.url.toLowerCase().includes(q) ||
+        b.description?.toLowerCase().includes(q)
       );
     }
     if (activeTag !== "All") result = result.filter((b) => b.tag === activeTag);
-    if (sortBy === "oldest")
-      result.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    if (sortBy === "oldest") result.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     else if (sortBy === "alpha") result.sort((a, b) => a.title.localeCompare(b.title));
     setFiltered(result);
   }, [bookmarks, search, activeTag, sortBy]);
@@ -170,47 +157,32 @@ useEffect(() => {
   };
 
   const openEdit = (bm: Bookmark) => {
-    setTitle(bm.title);
-    setUrl(bm.url);
-    setDescription(bm.description || "");
-    setTag(bm.tag || "");
-    setEditId(bm.id);
-    setPanelOpen(true);
+    setTitle(bm.title); setUrl(bm.url);
+    setDescription(bm.description || ""); setTag(bm.tag || "");
+    setEditId(bm.id); setPanelOpen(true);
   };
 
   const handleSubmit = async () => {
     if (!title.trim() || !url.trim()) return;
     setSubmitting(true);
     if (editId) {
-      const { error } = await supabase
-        .from("bookmarks")
-        .update({ title, url, description, tag })
-        .eq("id", editId);
+      const { error } = await supabase.from("bookmarks").update({ title, url, description, tag }).eq("id", editId);
       if (!error) { toast("Bookmark updated ✦"); resetForm(); setPanelOpen(false); }
       else toast("Failed to update — try again");
     } else {
-      const { error } = await supabase
-        .from("bookmarks")
-        .insert({ title, url, description, tag, user_id: user.id });
+      const { error } = await supabase.from("bookmarks").insert({ title, url, description, tag, user_id: user.id });
       if (!error) { toast("Bookmark saved ✦"); resetForm(); setPanelOpen(false); }
       else toast("Failed to save — try again");
     }
     setSubmitting(false);
   };
 
-  // ✅ Fixed: optimistic removal first, then DB delete, revert on error
   const handleDelete = async (id: string) => {
-    // Remove from local state immediately — no waiting for realtime
     setBookmarks((prev) => prev.filter((b) => b.id !== id));
     setDeleteTarget(null);
     toast("Bookmark deleted");
-
     const { error } = await supabase.from("bookmarks").delete().eq("id", id);
-    if (error) {
-      // Something went wrong — revert by re-fetching
-      toast("Delete failed — restoring...");
-      fetchBookmarks();
-    }
+    if (error) { toast("Delete failed — restoring..."); fetchBookmarks(); }
   };
 
   const allTags = ["All", ...TAG_OPTIONS.filter((t) => bookmarks.some((b) => b.tag === t))];
@@ -242,12 +214,7 @@ useEffect(() => {
           </h1>
           <p className="text-white/40 text-lg mb-10 font-light">Your curated corner of the internet.</p>
           <button
-            onClick={() =>
-              supabase.auth.signInWithOAuth({
-                provider: "google",
-                options: { redirectTo: `${location.origin}/auth/callback` },
-              })
-            }
+            onClick={() => supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${location.origin}/auth/callback` } })}
             className="group relative inline-flex items-center gap-3 px-8 py-4 bg-white text-black font-semibold rounded-2xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-white/10 active:scale-95"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -273,6 +240,7 @@ useEffect(() => {
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMiI+PHBhdGggZD0iTTM2IDM0djJoLTJ2LTJoMnptMC00aDJ2MmgtMnYtMnptLTQgMHYyaC0ydi0yaDJ6bTIgMGgydjJoLTJ2LTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-30" />
       </div>
 
+      {/* ── Header ── */}
       <header className="relative z-20 border-b border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 sticky top-0">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -335,28 +303,56 @@ useEffect(() => {
               <span className="hidden sm:inline">Add</span>
             </button>
 
-            <div className="relative group">
-              <button className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/10 hover:border-white/30 transition-colors">
+            {/* ✅ Click-to-toggle avatar dropdown */}
+            <div ref={profileRef} className="relative">
+              <button
+                onClick={() => setProfileOpen((prev) => !prev)}
+                className={`w-9 h-9 rounded-full overflow-hidden border-2 transition-all duration-200 ${
+                  profileOpen ? "border-amber-400/60 ring-2 ring-amber-400/20" : "border-white/10 hover:border-white/30"
+                }`}
+              >
                 {user.user_metadata?.avatar_url
                   ? <img src={user.user_metadata.avatar_url} alt="avatar" className="w-full h-full object-cover" />
                   : <div className="w-full h-full bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center text-xs font-bold">{user.email?.[0].toUpperCase()}</div>
                 }
               </button>
-              <div className="absolute right-0 top-full mt-2 w-48 bg-[#141418] border border-white/10 rounded-xl shadow-2xl overflow-hidden opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-all duration-200 translate-y-1 group-hover:translate-y-0 z-50">
-                <div className="px-4 py-3 border-b border-white/5">
-                  <p className="text-xs text-white/50 truncate" style={{ fontFamily: "system-ui, sans-serif" }}>{user.email}</p>
+
+              {/* Dropdown — only renders when open */}
+              {profileOpen && (
+                <div className="absolute right-0 top-full mt-2 w-52 bg-[#141418] border border-white/10 rounded-xl shadow-2xl shadow-black/60 overflow-hidden z-50 animate-in slide-in-from-top-2 fade-in duration-150">
+                  {/* User info */}
+                  <div className="px-4 py-3.5 border-b border-white/5">
+                    <div className="flex items-center gap-3 mb-1">
+                      <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-white/10">
+                        {user.user_metadata?.avatar_url
+                          ? <img src={user.user_metadata.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                          : <div className="w-full h-full bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center text-[10px] font-bold">{user.email?.[0].toUpperCase()}</div>
+                        }
+                      </div>
+                      <p className="text-xs text-white/70 font-medium truncate" style={{ fontFamily: "system-ui, sans-serif" }}>
+                        {user.user_metadata?.full_name || "My Account"}
+                      </p>
+                    </div>
+                    <p className="text-[11px] text-white/30 truncate pl-10" style={{ fontFamily: "system-ui, sans-serif" }}>{user.email}</p>
+                  </div>
+
+                  {/* Sign out */}
+                  <button
+                    onClick={async () => {
+                      setProfileOpen(false);
+                      await supabase.auth.signOut();
+                      location.reload();
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                    style={{ fontFamily: "system-ui, sans-serif" }}
+                  >
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                    </svg>
+                    Sign out
+                  </button>
                 </div>
-                <button
-                  onClick={async () => { await supabase.auth.signOut(); location.reload(); }}
-                  className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
-                  style={{ fontFamily: "system-ui, sans-serif" }}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                  </svg>
-                  Sign out
-                </button>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -378,6 +374,7 @@ useEffect(() => {
         </div>
       </header>
 
+      {/* ── Filter Bar ── */}
       <div className="relative z-10 border-b border-white/5 bg-[#0a0a0f]/60 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-4 overflow-x-auto scrollbar-none">
           <div className="flex items-center gap-2 shrink-0">
@@ -409,6 +406,7 @@ useEffect(() => {
         </div>
       </div>
 
+      {/* ── Content ── */}
       <div className="relative z-10 max-w-7xl mx-auto px-6 py-8">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-32 text-center">
@@ -448,6 +446,7 @@ useEffect(() => {
         )}
       </div>
 
+      {/* ── Add/Edit Panel ── */}
       {panelOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => { setPanelOpen(false); resetForm(); }} />
@@ -510,6 +509,7 @@ useEffect(() => {
         </div>
       )}
 
+      {/* ── Delete Confirm ── */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDeleteTarget(null)} />
@@ -537,6 +537,7 @@ useEffect(() => {
         </div>
       )}
 
+      {/* ── Toast ── */}
       {toastMsg && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 bg-[#1a1a22] border border-white/15 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom-2 fade-in duration-200">
           <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
